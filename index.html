@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#2e7d52">
+<title>Keto Kitchen — кето-рецепты по методике</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar__in">
+    <a class="brand" href="#/" aria-label="На главную">
+      <span class="brand__leaf">🥑</span><span class="brand__name">Keto&nbsp;Kitchen</span>
+    </a>
+    <nav class="topnav" id="topnav">
+      <a href="#/">Поиск</a>
+      <a href="#/categories">Категории</a>
+      <a href="#/favorites">Избранное <span class="badge" data-badge="fav"></span></a>
+      <a href="#/shopping">Покупки <span class="badge" data-badge="shop"></span></a>
+      <a href="#/rules">Правила</a>
+      <a href="#/supplements">БАДы</a>
+    </nav>
+    <button class="settings-btn" id="settingsBtn" title="Ваш вес и порции">⚖️ <span id="wLabel">95 кг</span></button>
+  </div>
+</header>
+
+<div class="settings-drawer" id="settingsDrawer" hidden>
+  <div class="settings-card">
+    <h3>Подгонка под ваш вес</h3>
+    <p class="muted">Порции и БЖУ пересчитываются под вашу норму белка (макс. 1 г на кг веса).</p>
+    <label>Ваш вес, кг
+      <input type="number" id="setWeight" min="40" max="200" step="1">
+    </label>
+    <label>Приёмов пищи в день
+      <select id="setMeals"><option>1</option><option>2</option><option>3</option></select>
+    </label>
+    <label>Норма белка в день, г <span class="muted" id="proteinRange"></span>
+      <input type="range" id="setProtein" min="40" max="120" step="1">
+      <output id="proteinOut"></output>
+    </label>
+    <div class="settings-actions">
+      <button class="btn" id="settingsClose">Готово</button>
+    </div>
+  </div>
+</div>
+
+<main id="app" class="app"><!-- views render here --></main>
+
+<nav class="bottomnav" id="bottomnav">
+  <a href="#/">🔎<span>Поиск</span></a>
+  <a href="#/categories">🍽️<span>Меню</span></a>
+  <a href="#/favorites">❤️<span>Избранное</span></a>
+  <a href="#/shopping">🛒<span>Покупки</span></a>
+  <a href="#/rules">📋<span>Правила</span></a>
+  <a href="#/supplements">💊<span>БАДы</span></a>
+</nav>
+
+<footer class="footer">
+  <p>Кето-рецепты по авторской методике. БЖУ 70/20/10. Расчёт нутриентов — оценка, не медицинская рекомендация.</p>
+</footer>
+
+<script src="js/data.js"></script>
+<script src="js/macros.js"></script>
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
