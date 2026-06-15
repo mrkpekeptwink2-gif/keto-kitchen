@@ -285,9 +285,32 @@
     return 'mixed';
   }
 
-  // замороженные ингредиенты конструктора: { название: зафиксированные граммы }
-  const getLocks = () => S.get('builderLocks', {});
-  const setLocks = o => S.set('builderLocks', o);
+  // текущие граммовки конструктора { название: граммы } и заморозки (массив названий)
+  const getGrams = () => S.get('builderGrams', {});
+  const setGrams = o => S.set('builderGrams', o);
+  const getLocks = () => { const v = S.get('builderLocks', []); return Array.isArray(v) ? v : Object.keys(v || {}); };
+  const setLocks = a => S.set('builderLocks', a);
+  // пересчитать НЕзамороженные граммовки под 70/20/10 (замороженные и holdName держим как есть)
+  function builderRebalance(holdName) {
+    const prods = [...builderSel].map(productByName).filter(Boolean);
+    if (!prods.length) { setGrams({}); return; }
+    const grams = getGrams(), locks = getLocks(), tp = S.settings().proteinPerMeal;
+    const fixed = prods.map(p => {
+      const held = (locks.includes(p.n) || p.n === holdName) && (p.n in grams);
+      return held ? grams[p.n] : null;
+    });
+    const d = buildDish(prods, tp, fixed);
+    const out = {}; prods.forEach((p, i) => out[p.n] = d.grams[i]); setGrams(out);
+  }
+  // БЖУ блюда из текущих граммовок
+  function builderMacros(prods, grams) {
+    let F = 0, P = 0, C = 0;
+    prods.forEach(p => { const g = grams[p.n] || 0; F += p.f * g / 100; P += p.p * g / 100; C += p.c * g / 100; });
+    const kc = F * 9 + P * 4 + C * 4 || 1;
+    const pf = Math.round(F * 9 / kc * 100), pp = Math.round(P * 4 / kc * 100);
+    return { fat_g: Math.round(F), protein_g: Math.round(P), carb_g: Math.round(C), kcal: Math.round(kc),
+             fat_pct: pf, protein_pct: pp, carb_pct: Math.max(0, 100 - pf - pp) };
+  }
 
   // подобрать граммовки выбранных продуктов под 70/20/10 и целевой белок (координатный спуск).
   // fixed[i] — зафиксированная (замороженная) граммовка ингредиента; null = подбирать.
@@ -362,24 +385,25 @@
     if (!prods.length) {
       result = `<p class="empty">Отметьте продукты, которые у вас есть — соберу из них блюдо в кето-пропорции 70/20/10.</p>`;
     } else {
-      const tp = S.settings().proteinPerMeal;
+      let grams = getGrams();
+      if (prods.some(p => !(p.n in grams))) { builderRebalance(null); grams = getGrams(); }
       const locks = getLocks();
-      const fixed = prods.map(p => (p.n in locks) ? locks[p.n] : null);
-      const d = buildDish(prods, tp, fixed);
+      const d = builderMacros(prods, grams);
       const ok = M.inBand(d);
-      const anyLock = prods.some(p => p.n in locks);
-      const rows = prods.map((p, i) => {
-        const g = d.grams[i];
-        const locked = (p.n in locks);
+      const anyLock = prods.some(p => locks.includes(p.n));
+      const rows = prods.map(p => {
+        const g = grams[p.n] || 0;
+        const locked = locks.includes(p.n);
         const smax = Math.max(300, Math.ceil(g * 2 / 50) * 50);
+        const step = g <= 50 ? 1 : 5;   // мелкий шаг (1 г) для малых граммовок, иначе 5 г
         const tiny = (!locked && g < 3) ? ` <small class="muted">— можно убрать</small>` : '';
         return `<li class="b-irow${locked ? ' locked' : ''}">
           <div class="b-irow__head">
-            <button class="block-lock" data-blockname="${esc(p.n)}" data-bg="${g}" title="${locked ? 'Разморозить' : 'Заморозить граммовку'}">${locked ? '🔒' : '🔓'}</button>
+            <button class="block-lock" data-blockname="${esc(p.n)}" title="${locked ? 'Разморозить' : 'Заморозить граммовку'}">${locked ? '🔒' : '🔓'}</button>
             <span class="ing-name">${esc(p.n)}${tiny}</span>
             <span class="ing-g"><b class="g-now">${g}</b> г</span>
           </div>
-          <input type="range" class="bslider" data-name="${esc(p.n)}" min="0" max="${smax}" step="5" value="${g}">
+          <input type="range" class="bslider" data-name="${esc(p.n)}" min="0" max="${smax}" step="${step}" value="${g}">
         </li>`;
       }).join('');
       let advice = '';
@@ -410,7 +434,7 @@
             <h2>Граммовки</h2>
             ${anyLock ? `<button class="settings-link" id="bUnlockAll">разморозить всё</button>` : ''}
           </div>
-          <p class="muted b-hint">Двигайте ползунок — задаёте свою граммовку (она замёрзнет 🔒). Замороженные ингредиенты не меняются, остальные конструктор балансирует под 70/20/10.</p>
+          <p class="muted b-hint">Двигайте ползунок — задаёте граммовку, остальные подстраиваются под 70/20/10. Нажмите 🔒, чтобы заморозить ингредиент: тогда он не будет меняться, когда вы двигаете другие или добавляете продукты.</p>
           <ul class="ing-list builder-ings">${rows}</ul>
           ${advice}
         </section>`;
@@ -457,23 +481,31 @@
       }
     });
   }
-  function addBuilder(n) { builderSel.add(n); S.set('builderProducts', [...builderSel]); rerenderBuilder(); }
-  function removeBuilder(n) {
-    builderSel.delete(n); S.set('builderProducts', [...builderSel]);
-    const locks = getLocks(); if (n in locks) { delete locks[n]; setLocks(locks); }
+  function addBuilder(n) {
+    builderSel.add(n); S.set('builderProducts', [...builderSel]);
+    builderRebalance(null);   // подобрать граммовку новому, незамороженные пересчитать
     rerenderBuilder();
   }
-  // задать граммовку ползунком → ингредиент замораживается на этом значении, остальные пересчитываются
-  function builderSetGrams(name, grams) {
-    const locks = getLocks(); locks[name] = Math.max(0, Math.round(grams)); setLocks(locks); rerenderBuilder();
+  function removeBuilder(n) {
+    builderSel.delete(n); S.set('builderProducts', [...builderSel]);
+    const locks = getLocks(); const li = locks.indexOf(n); if (li >= 0) { locks.splice(li, 1); setLocks(locks); }
+    const grams = getGrams(); if (n in grams) { delete grams[n]; setGrams(grams); }
+    builderRebalance(null);
+    rerenderBuilder();
   }
-  // заморозить/разморозить ингредиент (при заморозке — на текущей граммовке)
-  function builderToggleLock(name, grams) {
-    const locks = getLocks();
-    if (name in locks) delete locks[name]; else locks[name] = Math.max(0, Math.round(grams));
+  // задать граммовку ползунком: держим это значение и пересчитываем ОСТАЛЬНЫЕ незамороженные.
+  // сам ингредиент НЕ замораживаем (заморозка — только вручную кнопкой 🔒).
+  function builderSetGrams(name, val) {
+    const grams = getGrams(); grams[name] = Math.max(0, Math.round(val)); setGrams(grams);
+    builderRebalance(name);
+    rerenderBuilder();
+  }
+  function builderToggleLock(name) {
+    const locks = getLocks(); const i = locks.indexOf(name);
+    if (i >= 0) locks.splice(i, 1); else locks.push(name);
     setLocks(locks); rerenderBuilder();
   }
-  function builderUnlockAll() { setLocks({}); rerenderBuilder(); }
+  function builderUnlockAll() { setLocks([]); rerenderBuilder(); }
   // живой пересчёт БЖУ/процентов при перетаскивании ползунка (остальные граммовки берём как есть)
   function builderLiveTotals() {
     let F = 0, P = 0, C = 0;
@@ -856,7 +888,7 @@
       return;
     }
     const lockBtn = e.target.closest('.block-lock');
-    if (lockBtn) { e.preventDefault(); builderToggleLock(lockBtn.dataset.blockname, +lockBtn.dataset.bg); return; }
+    if (lockBtn) { e.preventDefault(); builderToggleLock(lockBtn.dataset.blockname); return; }
     if (e.target.id === 'bUnlockAll') { builderUnlockAll(); return; }
     const bchip = e.target.closest('[data-bing]');
     if (bchip) { e.preventDefault(); const t = bchip.dataset.bing; builderSel.has(t) ? removeBuilder(t) : addBuilder(t); return; }
