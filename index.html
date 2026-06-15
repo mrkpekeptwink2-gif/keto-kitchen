@@ -15,7 +15,13 @@
       <span class="brand__leaf">🥑</span><span class="brand__name">Keto&nbsp;Kitchen</span>
     </a>
     <nav class="topnav" id="topnav">
-      <a href="#/">Поиск</a>
+      <div class="navdrop">
+        <button class="navdrop__btn" id="topSearchBtn" type="button" aria-haspopup="true">🔎 Поиск ▾</button>
+        <div class="navdrop__menu" id="topSearchMenu" hidden>
+          <a href="#/">🍽️ По готовым рецептам</a>
+          <a href="#/builder">🧪 Конструктор блюда</a>
+        </div>
+      </div>
       <a href="#/categories">Категории</a>
       <a href="#/favorites">Избранное <span class="badge" data-badge="fav"></span></a>
       <a href="#/shopping">Покупки <span class="badge" data-badge="shop"></span></a>
@@ -49,13 +55,18 @@
 <main id="app" class="app"><!-- views render here --></main>
 
 <nav class="bottomnav" id="bottomnav">
-  <a href="#/">🔎<span>Поиск</span></a>
+  <button class="bn-btn" id="botSearchBtn" type="button">🔎<span>Поиск</span></button>
   <a href="#/categories">🍽️<span>Меню</span></a>
   <a href="#/favorites">❤️<span>Избранное</span></a>
   <a href="#/shopping">🛒<span>Покупки</span></a>
   <a href="#/rules">📋<span>Правила</span></a>
   <a href="#/supplements">💊<span>БАДы</span></a>
 </nav>
+
+<div class="searchsheet" id="searchSheet" hidden>
+  <a href="#/">🍽️ Поиск по готовым рецептам</a>
+  <a href="#/builder">🧪 Конструктор блюда</a>
+</div>
 
 <footer class="footer">
   <p>Кето-рецепты по авторской методике. БЖУ 70/20/10. Расчёт нутриентов — оценка, не медицинская рекомендация.</p>

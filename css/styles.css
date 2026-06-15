@@ -207,3 +207,34 @@ h1{font-size:1.6rem;margin:.2em 0 .5em} h2{font-size:1.2rem;margin:1.2em 0 .5em}
 .settings-actions{margin-top:18px;text-align:right}
 
 .footer{max-width:1100px;margin:24px auto;padding:16px;color:var(--muted);font-size:.82rem;text-align:center}
+
+/* ---- выпадающее меню «Поиск» (готовые рецепты / конструктор) ---- */
+.navdrop{position:relative}
+.navdrop__btn{background:none;border:0;color:#fff;font-weight:600;font-size:.95rem;opacity:.92;
+  padding:8px 12px;border-radius:10px;cursor:pointer;font-family:inherit}
+.navdrop__btn:hover{background:rgba(255,255,255,.14)}
+.navdrop__btn.active{background:rgba(255,255,255,.22);opacity:1}
+.navdrop__menu{position:absolute;top:100%;left:0;margin-top:6px;background:#fff;border:1px solid var(--line);
+  border-radius:12px;box-shadow:var(--shadow);padding:6px;min-width:240px;z-index:60;display:flex;flex-direction:column;gap:2px}
+.navdrop__menu a{padding:11px 12px;border-radius:8px;color:var(--ink);font-weight:600;font-size:.92rem;white-space:nowrap}
+.navdrop__menu a:hover{background:var(--green-l)}
+.bn-btn{display:flex;flex-direction:column;align-items:center;font-size:1.15rem;color:var(--muted);
+  flex:1;min-width:0;background:none;border:0;cursor:pointer;font-family:inherit;padding:0}
+.bn-btn span{font-size:.6rem;margin-top:2px;white-space:nowrap}
+.bn-btn.active{color:var(--green)}
+.searchsheet{position:fixed;left:10px;right:10px;bottom:62px;z-index:60;background:#fff;border:1px solid var(--line);
+  border-radius:14px;box-shadow:var(--shadow);padding:8px;display:flex;flex-direction:column;gap:4px}
+.searchsheet a{padding:14px;border-radius:10px;color:var(--ink);font-weight:600}
+.searchsheet a:hover,.searchsheet a:active{background:var(--green-l)}
+@media(min-width:760px){ .searchsheet{display:none!important} }
+
+/* ---- конструктор блюда ---- */
+.bgroups{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.bgroup{display:flex;flex-direction:column;gap:2px}
+.bg-label{font-size:.8rem;color:var(--muted);font-weight:700}
+.builder-result{max-width:1100px;margin:16px auto 0;padding:0 16px}
+.builder-result h2{margin:14px 0 6px}
+.builder-advice{background:var(--green-l);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;margin-top:12px}
+.ba-head{margin:.2rem 0 .6rem;font-weight:700;color:var(--green-d)}
+.ba-need{margin:.5rem 0}
+.ba-need>p{margin:.2rem 0;font-size:.92rem}

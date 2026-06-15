@@ -12,6 +12,7 @@
 
   const recipeById = {}; K.recipes.forEach(r => recipeById[r.id] = r);
   let selected = new Set(S.get('searchIngredients', []));
+  let builderSel = new Set(S.get('builderProducts', []));   // конструктор блюда: выбранные продукты
 
   /* ---------- добавленные пользователем продукты (per-recipe) ---------- */
   const getAdds = id => S.get('addn_' + id, []);
@@ -267,6 +268,191 @@
 
   function addIng(t) { selected.add(t); S.set('searchIngredients', [...selected]); rerenderHome(); }
   function removeIng(t) { selected.delete(t); S.set('searchIngredients', [...selected]); rerenderHome(); }
+
+  /* ---------- конструктор блюда из продуктов ---------- */
+  const KTARGET = { f: 70, p: 20, c: 10 };
+
+  function productByName(name) {
+    const q = norm(name);
+    return allProducts().find(x => norm(x.n) === q) || null;
+  }
+  // категория продукта по доминирующему макросу (по калориям)
+  function prodCat(p) {
+    const kf = p.f * 9, kp = p.p * 4, kc = p.c * 4, tot = kf + kp + kc || 1;
+    if (kp / tot >= 0.45) return 'protein';
+    if (kf / tot >= 0.60) return 'fat';
+    if (kc / tot >= 0.35) return 'carb';
+    return 'mixed';
+  }
+
+  // подобрать граммовки выбранных продуктов под 70/20/10 и целевой белок (координатный спуск)
+  function buildDish(prods, targetProtein) {
+    const N = prods.length;
+    const g = prods.map(() => 40), lo = prods.map(() => 0), hi = prods.map(() => 600);
+    const mac = gg => {
+      let F = 0, P = 0, C = 0;
+      for (let i = 0; i < N; i++) { F += prods[i].f * gg[i] / 100; P += prods[i].p * gg[i] / 100; C += prods[i].c * gg[i] / 100; }
+      return { F, P, C, kc: F * 9 + P * 4 + C * 4 };
+    };
+    const cost = gg => {
+      const m = mac(gg), k = m.kc || 1;
+      const dr = (m.F * 9 / k * 100 - KTARGET.f) ** 2 + (m.P * 4 / k * 100 - KTARGET.p) ** 2 + (m.C * 4 / k * 100 - KTARGET.c) ** 2;
+      // привязка размера к калорийности приёма (~белок×20 при 20% белка) — даёт нужный белок
+      // в сбалансированном блюде и не даёт раздуться вырожденным наборам (напр. одно масло)
+      const tk = targetProtein > 0 ? targetProtein * 20 : 600;
+      const ds = ((m.kc - tk) / tk * 100) ** 2;
+      return dr + 0.08 * ds;
+    };
+    for (let s = 0; s < 40; s++) for (let i = 0; i < N; i++) {
+      let a = lo[i], b = hi[i];
+      for (let it = 0; it < 26; it++) {
+        const m1 = a + (b - a) / 3, m2 = b - (b - a) / 3;
+        g[i] = m1; const c1 = cost(g); g[i] = m2; const c2 = cost(g);
+        if (c1 < c2) b = m2; else a = m1;
+      }
+      g[i] = (a + b) / 2;
+    }
+    const grams = g.map(v => Math.round(v));
+    const m = mac(grams), k = m.kc || 1;
+    const pf = Math.round(m.F * 9 / k * 100), pp = Math.round(m.P * 4 / k * 100);
+    return {
+      grams,
+      fat_g: Math.round(m.F), protein_g: Math.round(m.P), carb_g: Math.round(m.C), kcal: Math.round(m.kc),
+      fat_pct: pf, protein_pct: pp, carb_pct: Math.max(0, 100 - pf - pp),
+    };
+  }
+
+  // чего не хватает, чтобы попасть в норму (по лучшему достигнутому соотношению)
+  function builderNeeds(m) {
+    const needs = [];
+    if (m.fat_pct < 68 || m.protein_pct > 26 || m.carb_pct > 11) needs.push('fat');
+    if (m.protein_pct < 17 || m.fat_pct > 78) needs.push('protein');
+    if (m.carb_pct < 4) needs.push('carb');
+    return [...new Set(needs)];
+  }
+  const NEED_LABEL = {
+    fat: 'Маловато жира (или слишком много белка/углеводов) — добавьте жирный продукт:',
+    protein: 'Маловато белка — добавьте белковый продукт:',
+    carb: 'Почти нет углеводов — добавьте немного овощей или ягод:',
+  };
+  // подсказать продукты нужной категории (которых ещё нет в наборе)
+  function suggestFor(need) {
+    const have = new Set([...builderSel].map(norm));
+    const list = allProducts().filter(p => prodCat(p) === need && !have.has(norm(p.n)));
+    list.sort((a, b) => need === 'fat' ? b.f - a.f : need === 'protein' ? b.p - a.p : b.c - a.c);
+    return list.slice(0, 6);
+  }
+
+  function viewBuilder() {
+    const names = [...builderSel];
+    const prods = names.map(productByName).filter(Boolean);
+    // популярные теги по группам
+    const pop = { protein: [], fat: [], carb: [] };
+    allProducts().forEach(p => { const c = prodCat(p); if (pop[c] && pop[c].length < 9) pop[c].push(p); });
+    const tagRow = arr => arr.map(p => `<span class="chip ${builderSel.has(p.n) ? 'on' : ''}" data-bing="${esc(p.n)}">${esc(p.n)}</span>`).join('');
+
+    let result;
+    if (!prods.length) {
+      result = `<p class="empty">Отметьте продукты, которые у вас есть — соберу из них блюдо в кето-пропорции 70/20/10.</p>`;
+    } else {
+      const tp = S.settings().proteinPerMeal;
+      const d = buildDish(prods, tp);
+      const ok = M.inBand(d);
+      const rows = prods.map((p, i) => {
+        const g = d.grams[i];
+        const tiny = g < 3 ? ` <small class="muted">— можно не добавлять</small>` : '';
+        return `<li data-bg="${g}"><span class="ing-name">${esc(p.n)}${tiny}</span><span class="ing-g"><b class="g-now">${g}</b> г</span></li>`;
+      }).join('');
+      // бегунок белка — как на странице рецепта (пропорция при масштабировании не меняется)
+      const set = S.settings();
+      const baseProt = d.protein_g;
+      const scalable = ok && baseProt > 3;   // бегунок только для сбалансированного блюда
+      const sMin = scalable ? Math.max(10, Math.round(Math.min(baseProt, set.proteinPerMeal) * 0.5)) : 0;
+      const sMax = scalable ? Math.round(Math.max(baseProt, set.proteinPerMeal) * 2) : 0;
+      const startProt = scalable ? Math.min(sMax, Math.max(sMin, Math.round(baseProt))) : baseProt;
+      const sliderCard = scalable ? `
+        <div class="slider-card">
+          <div class="slider-head"><span>🍗 Белок в этом приёме</span><b id="bpsVal">${startProt} г</b></div>
+          <input type="range" id="bProteinSlider" min="${sMin}" max="${sMax}" step="1" value="${startProt}"
+                 data-base="${baseProt}" data-kcal="${d.kcal}" data-fat="${d.fat_g}" data-carb="${d.carb_g}">
+          <div class="slider-live" id="bpsLive">🔥 ${d.kcal} ккал · Ж ${d.fat_g} · Б ${d.protein_g} · У ${d.carb_g} г</div>
+          <div class="slider-foot muted">Двигайте бегунок, чтобы подогнать порцию под себя. Ваша норма:
+            <b>${set.proteinPerDay} г/день</b> · ~${set.proteinPerMeal} г на приём.
+            <button class="settings-link" id="openSettings2">изменить норму ⚖️</button></div>
+        </div>` : '';
+      let advice = '';
+      if (!ok) {
+        advice = `<div class="builder-advice">
+          <p class="ba-head">⚠ Пока не выходит ровно 70/20/10 — получается ${d.fat_pct}/${d.protein_pct}/${d.carb_pct}.</p>
+          ${builderNeeds(d).map(n => `<div class="ba-need"><p>${NEED_LABEL[n]}</p>
+            <div class="chips">${suggestFor(n).map(p => `<span class="chip" data-bing="${esc(p.n)}">＋ ${esc(p.n)}</span>`).join('')}</div>
+          </div>`).join('')}
+        </div>`;
+      }
+      result = `
+        <section class="builder-result">
+          <div class="macro-card">
+            <div class="macro-card__top">
+              <div class="macro-num"><b id="bmKcal">${d.kcal}</b><span>ккал</span></div>
+              <div class="macro-num"><b id="bmFat">${d.fat_g} г</b><span>жиры</span></div>
+              <div class="macro-num"><b id="bmProt">${d.protein_g} г</b><span>белок</span></div>
+              <div class="macro-num"><b id="bmCarb">${d.carb_g} г</b><span>углеводы</span></div>
+            </div>
+            ${macroBar(d)}
+            <div class="addctl">${ok
+              ? `<span class="cbadge ok">✓ Сбалансировано под 70/20/10</span>`
+              : `<span class="cbadge warn">⚠ Нужно докинуть продуктов</span>`}</div>
+          </div>
+          ${sliderCard}
+          <h2>Граммовки</h2>
+          <ul class="ing-list builder-ings">${rows}</ul>
+          ${advice}
+        </section>`;
+    }
+
+    return `
+      <section class="hero">
+        <h1>🧪 Конструктор блюда</h1>
+        <p class="muted">Отметьте продукты, которые есть под рукой — подберу граммовки в кето-пропорции 70/20/10. Если чего-то не хватает — подскажу, что добавить.</p>
+        <div class="search-box">
+          <input id="bInput" type="text" placeholder="Например: курица, авокадо, масло…" autocomplete="off">
+          <div class="suggest" id="bSuggest" hidden></div>
+        </div>
+        <div class="chips" id="bChips">
+          ${names.map(t => `<span class="chip on" data-bing="${esc(t)}">${esc(t)} ✕</span>`).join('')}
+          ${names.length ? `<button class="chip clear" id="bClear">очистить всё</button>` : ''}
+        </div>
+        <div class="bgroups">
+          <div class="bgroup"><span class="bg-label">🥩 Белок</span><div class="chips">${tagRow(pop.protein)}</div></div>
+          <div class="bgroup"><span class="bg-label">🧀 Жиры</span><div class="chips">${tagRow(pop.fat)}</div></div>
+          <div class="bgroup"><span class="bg-label">🥦 Овощи / углеводы</span><div class="chips">${tagRow(pop.carb)}</div></div>
+        </div>
+      </section>
+      ${result}`;
+  }
+
+  function rerenderBuilder() { app.innerHTML = viewBuilder(); bindBuilder(); }
+  function bindBuilder() {
+    const input = byId('bInput'), sug = byId('bSuggest');
+    if (!input) return;
+    input.addEventListener('input', () => {
+      const q = norm(input.value);
+      if (!q) { sug.hidden = true; return; }
+      const matches = allProducts().filter(p => norm(p.n).indexOf(q) !== -1).slice(0, 8);
+      sug.innerHTML = matches.map(p => `<div class="suggest__item" data-bing="${esc(p.n)}">${esc(p.n)} <span class="muted">Ж${p.f} Б${p.p} У${p.c}</span></div>`).join('')
+        || `<div class="suggest__item muted">нет совпадений</div>`;
+      sug.hidden = false;
+    });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const q = norm(input.value);
+        const first = allProducts().find(p => norm(p.n).indexOf(q) !== -1);
+        if (first) { addBuilder(first.n); input.value = ''; sug.hidden = true; }
+      }
+    });
+  }
+  function addBuilder(n) { builderSel.add(n); S.set('builderProducts', [...builderSel]); rerenderBuilder(); }
+  function removeBuilder(n) { builderSel.delete(n); S.set('builderProducts', [...builderSel]); rerenderBuilder(); }
 
   /* ---------- категории ---------- */
   function viewCategories() {
@@ -589,6 +775,7 @@
     const parts = path.split('/').filter(Boolean); // ['recipe','slug']
     window.scrollTo(0, 0);
     if (parts.length === 0) { app.innerHTML = viewHome(); bindHome(); }
+    else if (parts[0] === 'builder') { app.innerHTML = viewBuilder(); bindBuilder(); }
     else if (parts[0] === 'categories') app.innerHTML = viewCategories();
     else if (parts[0] === 'category') app.innerHTML = viewCategory(decodeURIComponent(parts[1] || ''));
     else if (parts[0] === 'source') app.innerHTML = viewSource(parts[1]);
@@ -607,6 +794,10 @@
       const h = a.getAttribute('href').slice(1).split('/').filter(Boolean)[0] || '';
       a.classList.toggle('active', h === active);
     });
+    // «Поиск» (лупа) активна на главной и в конструкторе
+    const sActive = active === '' || active === 'builder';
+    const tb = byId('topSearchBtn'); if (tb) tb.classList.toggle('active', sActive);
+    const bb = byId('botSearchBtn'); if (bb) bb.classList.toggle('active', sActive);
   }
   function updateBadges() {
     const f = S.favorites().length, s = S.shopping().length;
@@ -627,6 +818,9 @@
       selected.has(t) ? removeIng(t) : addIng(t);
       return;
     }
+    const bchip = e.target.closest('[data-bing]');
+    if (bchip) { e.preventDefault(); const t = bchip.dataset.bing; builderSel.has(t) ? removeBuilder(t) : addBuilder(t); return; }
+    if (e.target.id === 'bClear') { builderSel.clear(); S.set('builderProducts', []); rerenderBuilder(); return; }
     if (e.target.id === 'clearSel') { selected.clear(); S.set('searchIngredients', []); rerenderHome(); return; }
     if (e.target.id === 'clearShop') { S.clearShop(); render(); return; }
     if (e.target.id === 'openSettings2') { openSettings(); return; }
@@ -669,8 +863,21 @@
     setTxt('psLive', `🔥 ${t.kcal} ккал · Ж ${t.fat_g} · Б ${t.protein_g} · У ${t.carb_g} г`);
   }
 
+  // бегунок белка в конструкторе: масштабируем граммовки и БЖУ (проценты не меняются)
+  function updateBuilderSlider(sl) {
+    const base = +sl.dataset.base, val = +sl.value, k = base > 0 ? val / base : 1;
+    setTxt('bpsVal', val + ' г');
+    document.querySelectorAll('#app .builder-ings li[data-bg]').forEach(li => {
+      const g = li.querySelector('.g-now'); if (g) g.textContent = Math.round((+li.dataset.bg) * k);
+    });
+    const kcal = Math.round(+sl.dataset.kcal * k), fat = Math.round(+sl.dataset.fat * k), carb = Math.round(+sl.dataset.carb * k);
+    setTxt('bmKcal', kcal); setTxt('bmFat', fat + ' г'); setTxt('bmProt', val + ' г'); setTxt('bmCarb', carb + ' г');
+    setTxt('bpsLive', `🔥 ${kcal} ккал · Ж ${fat} · Б ${val} · У ${carb} г`);
+  }
+
   app.addEventListener('input', e => {
     if (e.target.id === 'proteinSlider') updateSlider(e.target);
+    if (e.target.id === 'bProteinSlider') updateBuilderSlider(e.target);
     if (e.target.id === 'addName') renderProdSuggest(e.target.value);
     if (e.target.id === 'ruleWeight') {
       const w = Math.max(40, Math.min(200, +e.target.value || 95));
@@ -713,6 +920,17 @@
   });
   byId('setProtein').addEventListener('input', () => { byId('proteinOut').textContent = byId('setProtein').value + ' г/день'; });
   byId('setMeals').addEventListener('change', () => {});
+
+  /* ---------- выпадающее меню «Поиск»: готовые рецепты / конструктор ---------- */
+  (function () {
+    const tBtn = byId('topSearchBtn'), tMenu = byId('topSearchMenu');
+    const bBtn = byId('botSearchBtn'), sheet = byId('searchSheet');
+    const closeAll = () => { if (tMenu) tMenu.hidden = true; if (sheet) sheet.hidden = true; };
+    if (tBtn && tMenu) tBtn.addEventListener('click', e => { e.stopPropagation(); const open = !tMenu.hidden; closeAll(); tMenu.hidden = open; });
+    if (bBtn && sheet) bBtn.addEventListener('click', e => { e.stopPropagation(); const open = !sheet.hidden; closeAll(); sheet.hidden = open; });
+    document.addEventListener('click', closeAll);
+    window.addEventListener('hashchange', closeAll);
+  })();
 
   /* ---------- старт ---------- */
   byId('wLabel').textContent = S.settings().weight + ' кг';
