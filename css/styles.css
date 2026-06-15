@@ -238,3 +238,14 @@ h1{font-size:1.6rem;margin:.2em 0 .5em} h2{font-size:1.2rem;margin:1.2em 0 .5em}
 .ba-head{margin:.2rem 0 .6rem;font-weight:700;color:var(--green-d)}
 .ba-need{margin:.5rem 0}
 .ba-need>p{margin:.2rem 0;font-size:.92rem}
+/* строки ингредиентов с ползунком и заморозкой */
+.b-ingshead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
+.b-hint{margin:.2rem 0 .6rem}
+.builder-ings li{display:block;padding:10px 4px;border-bottom:1px solid var(--line)}
+.b-irow__head{display:flex;align-items:center;gap:8px}
+.b-irow__head .ing-name{flex:1}
+.builder-ings li.b-irow.locked{background:var(--green-l);border-radius:10px;border-bottom:1px solid transparent;padding:10px}
+.block-lock{background:none;border:0;cursor:pointer;font-size:1.05rem;line-height:1;padding:2px 4px;border-radius:8px}
+.block-lock:hover{background:rgba(0,0,0,.06)}
+.bslider{width:100%;margin-top:8px;accent-color:var(--green)}
+.b-irow.locked .bslider{accent-color:var(--green-d)}

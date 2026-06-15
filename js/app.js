@@ -285,10 +285,17 @@
     return 'mixed';
   }
 
-  // подобрать граммовки выбранных продуктов под 70/20/10 и целевой белок (координатный спуск)
-  function buildDish(prods, targetProtein) {
+  // замороженные ингредиенты конструктора: { название: зафиксированные граммы }
+  const getLocks = () => S.get('builderLocks', {});
+  const setLocks = o => S.set('builderLocks', o);
+
+  // подобрать граммовки выбранных продуктов под 70/20/10 и целевой белок (координатный спуск).
+  // fixed[i] — зафиксированная (замороженная) граммовка ингредиента; null = подбирать.
+  function buildDish(prods, targetProtein, fixed) {
     const N = prods.length;
-    const g = prods.map(() => 40), lo = prods.map(() => 0), hi = prods.map(() => 600);
+    fixed = fixed || [];
+    const g = prods.map((_, i) => fixed[i] != null ? fixed[i] : 40);
+    const free = []; for (let i = 0; i < N; i++) if (fixed[i] == null) free.push(i);
     const mac = gg => {
       let F = 0, P = 0, C = 0;
       for (let i = 0; i < N; i++) { F += prods[i].f * gg[i] / 100; P += prods[i].p * gg[i] / 100; C += prods[i].c * gg[i] / 100; }
@@ -303,8 +310,8 @@
       const ds = ((m.kc - tk) / tk * 100) ** 2;
       return dr + 0.08 * ds;
     };
-    for (let s = 0; s < 40; s++) for (let i = 0; i < N; i++) {
-      let a = lo[i], b = hi[i];
+    for (let s = 0; s < 40; s++) for (const i of free) {
+      let a = 0, b = 600;
       for (let it = 0; it < 26; it++) {
         const m1 = a + (b - a) / 3, m2 = b - (b - a) / 3;
         g[i] = m1; const c1 = cost(g); g[i] = m2; const c2 = cost(g);
@@ -356,34 +363,30 @@
       result = `<p class="empty">Отметьте продукты, которые у вас есть — соберу из них блюдо в кето-пропорции 70/20/10.</p>`;
     } else {
       const tp = S.settings().proteinPerMeal;
-      const d = buildDish(prods, tp);
+      const locks = getLocks();
+      const fixed = prods.map(p => (p.n in locks) ? locks[p.n] : null);
+      const d = buildDish(prods, tp, fixed);
       const ok = M.inBand(d);
+      const anyLock = prods.some(p => p.n in locks);
       const rows = prods.map((p, i) => {
         const g = d.grams[i];
-        const tiny = g < 3 ? ` <small class="muted">— можно не добавлять</small>` : '';
-        return `<li data-bg="${g}"><span class="ing-name">${esc(p.n)}${tiny}</span><span class="ing-g"><b class="g-now">${g}</b> г</span></li>`;
+        const locked = (p.n in locks);
+        const smax = Math.max(300, Math.ceil(g * 2 / 50) * 50);
+        const tiny = (!locked && g < 3) ? ` <small class="muted">— можно убрать</small>` : '';
+        return `<li class="b-irow${locked ? ' locked' : ''}">
+          <div class="b-irow__head">
+            <button class="block-lock" data-blockname="${esc(p.n)}" data-bg="${g}" title="${locked ? 'Разморозить' : 'Заморозить граммовку'}">${locked ? '🔒' : '🔓'}</button>
+            <span class="ing-name">${esc(p.n)}${tiny}</span>
+            <span class="ing-g"><b class="g-now">${g}</b> г</span>
+          </div>
+          <input type="range" class="bslider" data-name="${esc(p.n)}" min="0" max="${smax}" step="5" value="${g}">
+        </li>`;
       }).join('');
-      // бегунок белка — как на странице рецепта (пропорция при масштабировании не меняется)
-      const set = S.settings();
-      const baseProt = d.protein_g;
-      const scalable = ok && baseProt > 3;   // бегунок только для сбалансированного блюда
-      const sMin = scalable ? Math.max(10, Math.round(Math.min(baseProt, set.proteinPerMeal) * 0.5)) : 0;
-      const sMax = scalable ? Math.round(Math.max(baseProt, set.proteinPerMeal) * 2) : 0;
-      const startProt = scalable ? Math.min(sMax, Math.max(sMin, Math.round(baseProt))) : baseProt;
-      const sliderCard = scalable ? `
-        <div class="slider-card">
-          <div class="slider-head"><span>🍗 Белок в этом приёме</span><b id="bpsVal">${startProt} г</b></div>
-          <input type="range" id="bProteinSlider" min="${sMin}" max="${sMax}" step="1" value="${startProt}"
-                 data-base="${baseProt}" data-kcal="${d.kcal}" data-fat="${d.fat_g}" data-carb="${d.carb_g}">
-          <div class="slider-live" id="bpsLive">🔥 ${d.kcal} ккал · Ж ${d.fat_g} · Б ${d.protein_g} · У ${d.carb_g} г</div>
-          <div class="slider-foot muted">Двигайте бегунок, чтобы подогнать порцию под себя. Ваша норма:
-            <b>${set.proteinPerDay} г/день</b> · ~${set.proteinPerMeal} г на приём.
-            <button class="settings-link" id="openSettings2">изменить норму ⚖️</button></div>
-        </div>` : '';
       let advice = '';
       if (!ok) {
         advice = `<div class="builder-advice">
           <p class="ba-head">⚠ Пока не выходит ровно 70/20/10 — получается ${d.fat_pct}/${d.protein_pct}/${d.carb_pct}.</p>
+          ${anyLock ? `<p class="muted">Подсказка: разморозьте 🔒 какой-нибудь ингредиент — конструктору будет чем балансировать. Или добавьте продукт ниже.</p>` : ''}
           ${builderNeeds(d).map(n => `<div class="ba-need"><p>${NEED_LABEL[n]}</p>
             <div class="chips">${suggestFor(n).map(p => `<span class="chip" data-bing="${esc(p.n)}">＋ ${esc(p.n)}</span>`).join('')}</div>
           </div>`).join('')}
@@ -398,13 +401,16 @@
               <div class="macro-num"><b id="bmProt">${d.protein_g} г</b><span>белок</span></div>
               <div class="macro-num"><b id="bmCarb">${d.carb_g} г</b><span>углеводы</span></div>
             </div>
-            ${macroBar(d)}
+            ${macroBarIds(d)}
             <div class="addctl">${ok
               ? `<span class="cbadge ok">✓ Сбалансировано под 70/20/10</span>`
               : `<span class="cbadge warn">⚠ Нужно докинуть продуктов</span>`}</div>
           </div>
-          ${sliderCard}
-          <h2>Граммовки</h2>
+          <div class="b-ingshead">
+            <h2>Граммовки</h2>
+            ${anyLock ? `<button class="settings-link" id="bUnlockAll">разморозить всё</button>` : ''}
+          </div>
+          <p class="muted b-hint">Двигайте ползунок — задаёте свою граммовку (она замёрзнет 🔒). Замороженные ингредиенты не меняются, остальные конструктор балансирует под 70/20/10.</p>
           <ul class="ing-list builder-ings">${rows}</ul>
           ${advice}
         </section>`;
@@ -452,7 +458,38 @@
     });
   }
   function addBuilder(n) { builderSel.add(n); S.set('builderProducts', [...builderSel]); rerenderBuilder(); }
-  function removeBuilder(n) { builderSel.delete(n); S.set('builderProducts', [...builderSel]); rerenderBuilder(); }
+  function removeBuilder(n) {
+    builderSel.delete(n); S.set('builderProducts', [...builderSel]);
+    const locks = getLocks(); if (n in locks) { delete locks[n]; setLocks(locks); }
+    rerenderBuilder();
+  }
+  // задать граммовку ползунком → ингредиент замораживается на этом значении, остальные пересчитываются
+  function builderSetGrams(name, grams) {
+    const locks = getLocks(); locks[name] = Math.max(0, Math.round(grams)); setLocks(locks); rerenderBuilder();
+  }
+  // заморозить/разморозить ингредиент (при заморозке — на текущей граммовке)
+  function builderToggleLock(name, grams) {
+    const locks = getLocks();
+    if (name in locks) delete locks[name]; else locks[name] = Math.max(0, Math.round(grams));
+    setLocks(locks); rerenderBuilder();
+  }
+  function builderUnlockAll() { setLocks({}); rerenderBuilder(); }
+  // живой пересчёт БЖУ/процентов при перетаскивании ползунка (остальные граммовки берём как есть)
+  function builderLiveTotals() {
+    let F = 0, P = 0, C = 0;
+    document.querySelectorAll('#app .bslider').forEach(sl => {
+      const p = productByName(sl.dataset.name); if (!p) return;
+      const g = +sl.value; F += p.f * g / 100; P += p.p * g / 100; C += p.c * g / 100;
+      const lab = sl.closest('.b-irow').querySelector('.g-now'); if (lab) lab.textContent = Math.round(g);
+    });
+    const kc = F * 9 + P * 4 + C * 4 || 1;
+    const pf = Math.round(F * 9 / kc * 100), pp = Math.round(P * 4 / kc * 100), pc = Math.max(0, 100 - pf - pp);
+    setTxt('bmKcal', Math.round(kc)); setTxt('bmFat', Math.round(F) + ' г');
+    setTxt('bmProt', Math.round(P) + ' г'); setTxt('bmCarb', Math.round(C) + ' г');
+    const bf = byId('rBarF'), bp = byId('rBarP'), bc = byId('rBarC');
+    if (bf) { bf.style.width = pf + '%'; bp.style.width = pp + '%'; bc.style.width = pc + '%'; }
+    setTxt('rmlF', 'Ж ' + pf + '%'); setTxt('rmlP', 'Б ' + pp + '%'); setTxt('rmlC', 'У ' + pc + '%');
+  }
 
   /* ---------- категории ---------- */
   function viewCategories() {
@@ -818,6 +855,9 @@
       selected.has(t) ? removeIng(t) : addIng(t);
       return;
     }
+    const lockBtn = e.target.closest('.block-lock');
+    if (lockBtn) { e.preventDefault(); builderToggleLock(lockBtn.dataset.blockname, +lockBtn.dataset.bg); return; }
+    if (e.target.id === 'bUnlockAll') { builderUnlockAll(); return; }
     const bchip = e.target.closest('[data-bing]');
     if (bchip) { e.preventDefault(); const t = bchip.dataset.bing; builderSel.has(t) ? removeBuilder(t) : addBuilder(t); return; }
     if (e.target.id === 'bClear') { builderSel.clear(); S.set('builderProducts', []); rerenderBuilder(); return; }
@@ -863,21 +903,9 @@
     setTxt('psLive', `🔥 ${t.kcal} ккал · Ж ${t.fat_g} · Б ${t.protein_g} · У ${t.carb_g} г`);
   }
 
-  // бегунок белка в конструкторе: масштабируем граммовки и БЖУ (проценты не меняются)
-  function updateBuilderSlider(sl) {
-    const base = +sl.dataset.base, val = +sl.value, k = base > 0 ? val / base : 1;
-    setTxt('bpsVal', val + ' г');
-    document.querySelectorAll('#app .builder-ings li[data-bg]').forEach(li => {
-      const g = li.querySelector('.g-now'); if (g) g.textContent = Math.round((+li.dataset.bg) * k);
-    });
-    const kcal = Math.round(+sl.dataset.kcal * k), fat = Math.round(+sl.dataset.fat * k), carb = Math.round(+sl.dataset.carb * k);
-    setTxt('bmKcal', kcal); setTxt('bmFat', fat + ' г'); setTxt('bmProt', val + ' г'); setTxt('bmCarb', carb + ' г');
-    setTxt('bpsLive', `🔥 ${kcal} ккал · Ж ${fat} · Б ${val} · У ${carb} г`);
-  }
-
   app.addEventListener('input', e => {
     if (e.target.id === 'proteinSlider') updateSlider(e.target);
-    if (e.target.id === 'bProteinSlider') updateBuilderSlider(e.target);
+    if (e.target.classList.contains('bslider')) builderLiveTotals();
     if (e.target.id === 'addName') renderProdSuggest(e.target.value);
     if (e.target.id === 'ruleWeight') {
       const w = Math.max(40, Math.min(200, +e.target.value || 95));
@@ -887,6 +915,7 @@
 
   app.addEventListener('change', e => {
     if (e.target.id === 'rebalanceToggle') { S.set('rebalanceOn', e.target.checked); render(); }
+    if (e.target.classList.contains('bslider')) builderSetGrams(e.target.dataset.name, +e.target.value);
   });
 
   /* ---------- настройки (вес/приёмы/белок) ---------- */
