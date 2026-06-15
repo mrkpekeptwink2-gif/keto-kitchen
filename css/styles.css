@@ -249,3 +249,4 @@ h1{font-size:1.6rem;margin:.2em 0 .5em} h2{font-size:1.2rem;margin:1.2em 0 .5em}
 .block-lock:hover{background:rgba(0,0,0,.06)}
 .bslider{width:100%;margin-top:8px;accent-color:var(--green)}
 .b-irow.locked .bslider{accent-color:var(--green-d)}
+.b-warn{background:#fde8e6;color:#b23b30;border-radius:10px;padding:8px 12px;font-size:.88rem;font-weight:600;line-height:1.35}

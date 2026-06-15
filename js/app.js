@@ -365,6 +365,17 @@
     protein: 'Маловато белка — добавьте белковый продукт:',
     carb: 'Почти нет углеводов — добавьте немного овощей или ягод:',
   };
+  const NEED_NOUN = { fat: 'жира', protein: 'белка', carb: 'углеводов' };
+  // значок состояния: ✓ или живое уведомление о нехватке (с учётом заморозок)
+  function builderBadgeHtml(d) {
+    if (M.inBand(d)) return `<span class="cbadge ok">✓ Сбалансировано под 70/20/10</span>`;
+    const needs = builderNeeds(d).map(n => NEED_NOUN[n]).join(', ');
+    const anyLock = [...builderSel].some(n => getLocks().includes(n));
+    const tail = anyLock
+      ? ' Заморожено слишком много — разморозьте 🔒 ингредиент или добавьте продукт.'
+      : ' Добавьте продукт.';
+    return `<div class="b-warn">⚠ Для баланса 70/20/10 не хватает: <b>${needs}</b>.${tail}</div>`;
+  }
   // подсказать продукты нужной категории (которых ещё нет в наборе)
   function suggestFor(need) {
     const have = new Set([...builderSel].map(norm));
@@ -426,9 +437,7 @@
               <div class="macro-num"><b id="bmCarb">${d.carb_g} г</b><span>углеводы</span></div>
             </div>
             ${macroBarIds(d)}
-            <div class="addctl">${ok
-              ? `<span class="cbadge ok">✓ Сбалансировано под 70/20/10</span>`
-              : `<span class="cbadge warn">⚠ Нужно докинуть продуктов</span>`}</div>
+            <div class="addctl" id="bBadge">${builderBadgeHtml(d)}</div>
           </div>
           <div class="b-ingshead">
             <h2>Граммовки</h2>
@@ -506,21 +515,29 @@
     setLocks(locks); rerenderBuilder();
   }
   function builderUnlockAll() { setLocks([]); rerenderBuilder(); }
-  // живой пересчёт БЖУ/процентов при перетаскивании ползунка (остальные граммовки берём как есть)
-  function builderLiveTotals() {
-    let F = 0, P = 0, C = 0;
-    document.querySelectorAll('#app .bslider').forEach(sl => {
-      const p = productByName(sl.dataset.name); if (!p) return;
-      const g = +sl.value; F += p.f * g / 100; P += p.p * g / 100; C += p.c * g / 100;
-      const lab = sl.closest('.b-irow').querySelector('.g-now'); if (lab) lab.textContent = Math.round(g);
+  // онлайн при перетаскивании ползунка: держим перетаскиваемый и замороженные, остальные
+  // пересчитываем под 70/20/10 и сразу обновляем их ползунки/граммовки/БЖУ/значок (без ре-рендера)
+  function builderDragLive(sl) {
+    const draggedName = sl.dataset.name, draggedVal = +sl.value;
+    const prods = [...builderSel].map(productByName).filter(Boolean);
+    const grams = getGrams(), locks = getLocks(), tp = S.settings().proteinPerMeal;
+    const fixed = prods.map(p => {
+      if (p.n === draggedName) return draggedVal;
+      if (locks.includes(p.n) && (p.n in grams)) return grams[p.n];
+      return null;
     });
-    const kc = F * 9 + P * 4 + C * 4 || 1;
-    const pf = Math.round(F * 9 / kc * 100), pp = Math.round(P * 4 / kc * 100), pc = Math.max(0, 100 - pf - pp);
-    setTxt('bmKcal', Math.round(kc)); setTxt('bmFat', Math.round(F) + ' г');
-    setTxt('bmProt', Math.round(P) + ' г'); setTxt('bmCarb', Math.round(C) + ' г');
+    const d = buildDish(prods, tp, fixed);
+    const map = {}; prods.forEach((p, i) => map[p.n] = d.grams[i]);
+    document.querySelectorAll('#app .bslider').forEach(s => {
+      const g = map[s.dataset.name]; if (g == null) return;
+      if (s !== sl) s.value = g;                       // перетаскиваемый ползунок не трогаем
+      const lab = s.closest('.b-irow').querySelector('.g-now'); if (lab) lab.textContent = g;
+    });
+    setTxt('bmKcal', d.kcal); setTxt('bmFat', d.fat_g + ' г'); setTxt('bmProt', d.protein_g + ' г'); setTxt('bmCarb', d.carb_g + ' г');
     const bf = byId('rBarF'), bp = byId('rBarP'), bc = byId('rBarC');
-    if (bf) { bf.style.width = pf + '%'; bp.style.width = pp + '%'; bc.style.width = pc + '%'; }
-    setTxt('rmlF', 'Ж ' + pf + '%'); setTxt('rmlP', 'Б ' + pp + '%'); setTxt('rmlC', 'У ' + pc + '%');
+    if (bf) { bf.style.width = d.fat_pct + '%'; bp.style.width = d.protein_pct + '%'; bc.style.width = d.carb_pct + '%'; }
+    setTxt('rmlF', 'Ж ' + d.fat_pct + '%'); setTxt('rmlP', 'Б ' + d.protein_pct + '%'); setTxt('rmlC', 'У ' + d.carb_pct + '%');
+    const badge = byId('bBadge'); if (badge) badge.innerHTML = builderBadgeHtml(d);
   }
 
   /* ---------- категории ---------- */
@@ -937,7 +954,7 @@
 
   app.addEventListener('input', e => {
     if (e.target.id === 'proteinSlider') updateSlider(e.target);
-    if (e.target.classList.contains('bslider')) builderLiveTotals();
+    if (e.target.classList.contains('bslider')) builderDragLive(e.target);
     if (e.target.id === 'addName') renderProdSuggest(e.target.value);
     if (e.target.id === 'ruleWeight') {
       const w = Math.max(40, Math.min(200, +e.target.value || 95));
