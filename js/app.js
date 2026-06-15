@@ -312,6 +312,11 @@
              fat_pct: pf, protein_pct: pp, carb_pct: Math.max(0, 100 - pf - pp) };
   }
 
+  // сохранённые блюда из конструктора (избранное)
+  const savedDishes = () => S.get('savedDishes', []);
+  function saveDishObj(d) { const a = savedDishes(); a.unshift(d); S.set('savedDishes', a); }
+  function removeSavedDish(id) { S.set('savedDishes', savedDishes().filter(d => d.id !== id)); }
+
   // подобрать граммовки выбранных продуктов под 70/20/10 и целевой белок (координатный спуск).
   // fixed[i] — зафиксированная (замороженная) граммовка ингредиента; null = подбирать.
   function buildDish(prods, targetProtein, fixed) {
@@ -439,6 +444,7 @@
             ${macroBarIds(d)}
             <div class="addctl" id="bBadge">${builderBadgeHtml(d)}</div>
           </div>
+          <div class="b-actions"><button class="btn btn--sm" id="bSaveDish">❤️ Сохранить в избранное</button></div>
           <div class="b-ingshead">
             <h2>Граммовки</h2>
             ${anyLock ? `<button class="settings-link" id="bUnlockAll">разморозить всё</button>` : ''}
@@ -515,6 +521,29 @@
     setLocks(locks); rerenderBuilder();
   }
   function builderUnlockAll() { setLocks([]); rerenderBuilder(); }
+  // сохранить текущее блюдо конструктора в избранное
+  function builderSaveDish() {
+    const prods = [...builderSel].map(productByName).filter(Boolean);
+    if (!prods.length) return;
+    const grams = getGrams();
+    const items = prods.map(p => ({ n: p.n, grams: grams[p.n] || 0 })).filter(i => i.grams > 0);
+    if (!items.length) return;
+    const macros = builderMacros(prods, grams);
+    const top = items.slice().sort((a, b) => b.grams - a.grams).slice(0, 3)
+      .map(i => i.n.replace(/\s*\(.*?\)\s*/g, '').trim());
+    const name = (prompt('Название блюда для избранного:', top.join(' + ')) || '').trim();
+    if (!name) return;
+    saveDishObj({ id: Date.now(), name, items, macros });
+    const btn = byId('bSaveDish'); if (btn) { btn.textContent = '✓ Сохранено — открыть «Избранное»'; btn.classList.add('btn--on'); }
+  }
+  // загрузить сохранённое блюдо обратно в конструктор
+  function openDishInBuilder(id) {
+    const d = savedDishes().find(x => x.id === id); if (!d) return;
+    builderSel = new Set(d.items.map(i => i.n));
+    S.set('builderProducts', [...builderSel]);
+    const g = {}; d.items.forEach(i => g[i.n] = i.grams); setGrams(g); setLocks([]);
+    location.hash = '#/builder';
+  }
   // онлайн при перетаскивании ползунка: держим перетаскиваемый и замороженные, остальные
   // пересчитываем под 70/20/10 и сразу обновляем их ползунки/граммовки/БЖУ/значок (без ре-рендера)
   function builderDragLive(sl) {
@@ -761,8 +790,34 @@
   /* ---------- избранное ---------- */
   function viewFavorites() {
     const list = S.favorites().map(id => recipeById[id]).filter(Boolean);
-    return `<section class="section"><h1>❤️ Избранное <span class="count">${list.length}</span></h1>
-      ${grid(list, 'Здесь появятся блюда, которые вы отметите сердечком.')}</section>`;
+    return `<section class="section"><h1>❤️ Любимые рецепты <span class="count">${list.length}</span></h1>
+      ${grid(list, 'Здесь появятся рецепты, которые вы отметите сердечком.')}</section>`;
+  }
+
+  function savedDishCard(d) {
+    const m = d.macros;
+    return `<div class="card dish-card">
+      <div class="card__body">
+        <h3 class="card__title">${esc(d.name)}</h3>
+        ${macroBar(m)}
+        <div class="card__kcal">${m.kcal} ккал · Ж${m.fat_g} Б${m.protein_g} У${m.carb_g} г</div>
+        <ul class="dish-ings">${d.items.map(i => `<li><span>${esc(i.n)}</span><b>${i.grams} г</b></li>`).join('')}</ul>
+        <div class="dish-actions">
+          <button class="btn btn--ghost btn--sm" data-opendish="${d.id}">↻ В конструктор</button>
+          <button class="btn btn--ghost btn--sm" data-deldish="${d.id}">🗑 Удалить</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  function viewSaved() {
+    const list = savedDishes();
+    if (!list.length) return `<section class="section">
+      <h1>🧪 Избранное из конструктора</h1>
+      <p class="empty">Соберите блюдо в конструкторе и нажмите «❤️ Сохранить в избранное» — оно появится здесь.</p>
+      <p style="text-align:center"><a class="btn btn--sm" href="#/builder">Открыть конструктор</a></p></section>`;
+    return `<section class="section">
+      <h1>🧪 Избранное из конструктора <span class="count">${list.length}</span></h1>
+      <div class="grid">${list.map(savedDishCard).join('')}</div></section>`;
   }
 
   /* ---------- список покупок ---------- */
@@ -867,6 +922,7 @@
     else if (parts[0] === 'source') app.innerHTML = viewSource(parts[1]);
     else if (parts[0] === 'recipe') app.innerHTML = viewRecipe(decodeURIComponent(parts[1] || ''));
     else if (parts[0] === 'favorites') app.innerHTML = viewFavorites();
+    else if (parts[0] === 'saved') app.innerHTML = viewSaved();
     else if (parts[0] === 'shopping') app.innerHTML = viewShopping();
     else if (parts[0] === 'rules') app.innerHTML = viewRules();
     else if (parts[0] === 'supplements') app.innerHTML = viewSupplements();
@@ -884,11 +940,16 @@
     const sActive = active === '' || active === 'builder';
     const tb = byId('topSearchBtn'); if (tb) tb.classList.toggle('active', sActive);
     const bb = byId('botSearchBtn'); if (bb) bb.classList.toggle('active', sActive);
+    // «Избранное» активно на обоих подразделах
+    const fActive = active === 'favorites' || active === 'saved';
+    const tf = byId('topFavBtn'); if (tf) tf.classList.toggle('active', fActive);
+    const bf = byId('botFavBtn'); if (bf) bf.classList.toggle('active', fActive);
   }
   function updateBadges() {
-    const f = S.favorites().length, s = S.shopping().length;
+    const f = S.favorites().length, s = S.shopping().length, sd = savedDishes().length;
     document.querySelectorAll('[data-badge="fav"]').forEach(e => { e.textContent = f || ''; e.style.display = f ? '' : 'none'; });
     document.querySelectorAll('[data-badge="shop"]').forEach(e => { e.textContent = s || ''; e.style.display = s ? '' : 'none'; });
+    document.querySelectorAll('[data-badge="saved"]').forEach(e => { e.textContent = sd || ''; e.style.display = sd ? '' : 'none'; });
   }
 
   /* ---------- делегирование событий ---------- */
@@ -907,6 +968,11 @@
     const lockBtn = e.target.closest('.block-lock');
     if (lockBtn) { e.preventDefault(); builderToggleLock(lockBtn.dataset.blockname); return; }
     if (e.target.id === 'bUnlockAll') { builderUnlockAll(); return; }
+    if (e.target.id === 'bSaveDish') { builderSaveDish(); return; }
+    const openDish = e.target.closest('[data-opendish]');
+    if (openDish) { openDishInBuilder(+openDish.dataset.opendish); return; }
+    const delDish = e.target.closest('[data-deldish]');
+    if (delDish) { removeSavedDish(+delDish.dataset.deldish); render(); return; }
     const bchip = e.target.closest('[data-bing]');
     if (bchip) { e.preventDefault(); const t = bchip.dataset.bing; builderSel.has(t) ? removeBuilder(t) : addBuilder(t); return; }
     if (e.target.id === 'bClear') { builderSel.clear(); S.set('builderProducts', []); rerenderBuilder(); return; }
@@ -1001,11 +1067,16 @@
 
   /* ---------- выпадающее меню «Поиск»: готовые рецепты / конструктор ---------- */
   (function () {
-    const tBtn = byId('topSearchBtn'), tMenu = byId('topSearchMenu');
-    const bBtn = byId('botSearchBtn'), sheet = byId('searchSheet');
-    const closeAll = () => { if (tMenu) tMenu.hidden = true; if (sheet) sheet.hidden = true; };
-    if (tBtn && tMenu) tBtn.addEventListener('click', e => { e.stopPropagation(); const open = !tMenu.hidden; closeAll(); tMenu.hidden = open; });
-    if (bBtn && sheet) bBtn.addEventListener('click', e => { e.stopPropagation(); const open = !sheet.hidden; closeAll(); sheet.hidden = open; });
+    const pairs = [
+      ['topSearchBtn', 'topSearchMenu'], ['botSearchBtn', 'searchSheet'],
+      ['topFavBtn', 'topFavMenu'], ['botFavBtn', 'favSheet'],
+    ];
+    const menus = pairs.map(([, m]) => byId(m)).filter(Boolean);
+    const closeAll = () => menus.forEach(m => m.hidden = true);
+    pairs.forEach(([bId, mId]) => {
+      const b = byId(bId), m = byId(mId);
+      if (b && m) b.addEventListener('click', e => { e.stopPropagation(); const open = !m.hidden; closeAll(); m.hidden = open; });
+    });
     document.addEventListener('click', closeAll);
     window.addEventListener('hashchange', closeAll);
   })();

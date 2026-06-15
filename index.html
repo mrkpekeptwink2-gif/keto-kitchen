@@ -23,7 +23,13 @@
         </div>
       </div>
       <a href="#/categories">Категории</a>
-      <a href="#/favorites">Избранное <span class="badge" data-badge="fav"></span></a>
+      <div class="navdrop">
+        <button class="navdrop__btn" id="topFavBtn" type="button" aria-haspopup="true">❤️ Избранное ▾</button>
+        <div class="navdrop__menu" id="topFavMenu" hidden>
+          <a href="#/favorites">❤️ Любимые рецепты <span class="badge" data-badge="fav"></span></a>
+          <a href="#/saved">🧪 Из конструктора <span class="badge" data-badge="saved"></span></a>
+        </div>
+      </div>
       <a href="#/shopping">Покупки <span class="badge" data-badge="shop"></span></a>
       <a href="#/rules">Правила</a>
       <a href="#/supplements">БАДы</a>
@@ -57,7 +63,7 @@
 <nav class="bottomnav" id="bottomnav">
   <button class="bn-btn" id="botSearchBtn" type="button">🔎<span>Поиск</span></button>
   <a href="#/categories">🍽️<span>Меню</span></a>
-  <a href="#/favorites">❤️<span>Избранное</span></a>
+  <button class="bn-btn" id="botFavBtn" type="button">❤️<span>Избранное</span></button>
   <a href="#/shopping">🛒<span>Покупки</span></a>
   <a href="#/rules">📋<span>Правила</span></a>
   <a href="#/supplements">💊<span>БАДы</span></a>
@@ -66,6 +72,10 @@
 <div class="searchsheet" id="searchSheet" hidden>
   <a href="#/">🍽️ Поиск по готовым рецептам</a>
   <a href="#/builder">🧪 Конструктор блюда</a>
+</div>
+<div class="searchsheet" id="favSheet" hidden>
+  <a href="#/favorites">❤️ Любимые рецепты</a>
+  <a href="#/saved">🧪 Из конструктора</a>
 </div>
 
 <footer class="footer">

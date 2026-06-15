@@ -250,3 +250,10 @@ h1{font-size:1.6rem;margin:.2em 0 .5em} h2{font-size:1.2rem;margin:1.2em 0 .5em}
 .bslider{width:100%;margin-top:8px;accent-color:var(--green)}
 .b-irow.locked .bslider{accent-color:var(--green-d)}
 .b-warn{background:#fde8e6;color:#b23b30;border-radius:10px;padding:8px 12px;font-size:.88rem;font-weight:600;line-height:1.35}
+.b-actions{margin-top:12px}
+/* карточки сохранённых блюд (избранное из конструктора) */
+.dish-card{cursor:default}
+.dish-card .card__body{padding:14px}
+.dish-ings{list-style:none;padding:0;margin:10px 0 0;font-size:.88rem}
+.dish-ings li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line)}
+.dish-actions{display:flex;gap:8px;margin-top:12px}
