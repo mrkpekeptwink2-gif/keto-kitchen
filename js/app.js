@@ -276,6 +276,15 @@
     const q = norm(name);
     return allProducts().find(x => norm(x.n) === q) || null;
   }
+  // БЖУ ингредиентов, перенесённых из рецепта/сохранённого блюда (когда их нет в базе продуктов)
+  const getExtra = () => S.get('builderExtra', {});
+  const setExtra = o => S.set('builderExtra', o);
+  // резолвер БЖУ для конструктора: сперва перенесённые ингредиенты, иначе база продуктов
+  function bProduct(name) {
+    const ex = getExtra();
+    if (ex[name]) return { n: name, f: ex[name].f, p: ex[name].p, c: ex[name].c };
+    return productByName(name);
+  }
   // категория продукта по доминирующему макросу (по калориям)
   function prodCat(p) {
     const kf = p.f * 9, kp = p.p * 4, kc = p.c * 4, tot = kf + kp + kc || 1;
@@ -292,7 +301,7 @@
   const setLocks = a => S.set('builderLocks', a);
   // пересчитать НЕзамороженные граммовки под 70/20/10 (замороженные и holdName держим как есть)
   function builderRebalance(holdName) {
-    const prods = [...builderSel].map(productByName).filter(Boolean);
+    const prods = [...builderSel].map(bProduct).filter(Boolean);
     if (!prods.length) { setGrams({}); return; }
     const grams = getGrams(), locks = getLocks(), tp = S.settings().proteinPerMeal;
     const fixed = prods.map(p => {
@@ -391,7 +400,7 @@
 
   function viewBuilder() {
     const names = [...builderSel];
-    const prods = names.map(productByName).filter(Boolean);
+    const prods = names.map(bProduct).filter(Boolean);
     // популярные теги по группам
     const pop = { protein: [], fat: [], carb: [] };
     allProducts().forEach(p => { const c = prodCat(p); if (pop[c] && pop[c].length < 9) pop[c].push(p); });
@@ -417,7 +426,7 @@
           <div class="b-irow__head">
             <button class="block-lock" data-blockname="${esc(p.n)}" title="${locked ? 'Разморозить' : 'Заморозить граммовку'}">${locked ? '🔒' : '🔓'}</button>
             <span class="ing-name">${esc(p.n)}${tiny}</span>
-            <span class="ing-g"><b class="g-now">${g}</b> г</span>
+            <span class="ing-g"><input type="number" class="g-input" data-name="${esc(p.n)}" value="${g}" min="0" inputmode="numeric"> г</span>
           </div>
           <input type="range" class="bslider" data-name="${esc(p.n)}" min="0" max="${smax}" step="${step}" value="${g}">
         </li>`;
@@ -505,6 +514,7 @@
     builderSel.delete(n); S.set('builderProducts', [...builderSel]);
     const locks = getLocks(); const li = locks.indexOf(n); if (li >= 0) { locks.splice(li, 1); setLocks(locks); }
     const grams = getGrams(); if (n in grams) { delete grams[n]; setGrams(grams); }
+    const ex = getExtra(); if (n in ex) { delete ex[n]; setExtra(ex); }
     builderRebalance(null);
     rerenderBuilder();
   }
@@ -523,10 +533,10 @@
   function builderUnlockAll() { setLocks([]); rerenderBuilder(); }
   // сохранить текущее блюдо конструктора в избранное
   function builderSaveDish() {
-    const prods = [...builderSel].map(productByName).filter(Boolean);
+    const prods = [...builderSel].map(bProduct).filter(Boolean);
     if (!prods.length) return;
     const grams = getGrams();
-    const items = prods.map(p => ({ n: p.n, grams: grams[p.n] || 0 })).filter(i => i.grams > 0);
+    const items = prods.map(p => ({ n: p.n, grams: grams[p.n] || 0, f: p.f, p: p.p, c: p.c })).filter(i => i.grams > 0);
     if (!items.length) return;
     const macros = builderMacros(prods, grams);
     const top = items.slice().sort((a, b) => b.grams - a.grams).slice(0, 3)
@@ -541,14 +551,30 @@
     const d = savedDishes().find(x => x.id === id); if (!d) return;
     builderSel = new Set(d.items.map(i => i.n));
     S.set('builderProducts', [...builderSel]);
-    const g = {}; d.items.forEach(i => g[i.n] = i.grams); setGrams(g); setLocks([]);
+    const g = {}, ex = {};
+    d.items.forEach(i => { g[i.n] = i.grams; if (i.f != null) ex[i.n] = { f: i.f, p: i.p, c: i.c }; });
+    setGrams(g); setExtra(ex); setLocks([]);
+    location.hash = '#/builder';
+  }
+  // перенести рецепт в конструктор (ингредиенты + граммовки рецепта; БЖУ по ключу нутриентов)
+  function openRecipeInBuilder(rid) {
+    const r = recipeById[rid]; if (!r) return;
+    const items = r.ingredients.filter(i => (i.grams || 0) > 0).map(i => {
+      const nu = nut(i.key);
+      return { n: i.name.split('/')[0].trim(), grams: Math.round(i.grams), f: nu.f, p: nu.p, c: nu.c };
+    });
+    builderSel = new Set(items.map(i => i.n));
+    S.set('builderProducts', [...builderSel]);
+    const g = {}, ex = {};
+    items.forEach(i => { g[i.n] = i.grams; ex[i.n] = { f: i.f, p: i.p, c: i.c }; });
+    setGrams(g); setExtra(ex); setLocks([]);
     location.hash = '#/builder';
   }
   // онлайн при перетаскивании ползунка: держим перетаскиваемый и замороженные, остальные
   // пересчитываем под 70/20/10 и сразу обновляем их ползунки/граммовки/БЖУ/значок (без ре-рендера)
   function builderDragLive(sl) {
     const draggedName = sl.dataset.name, draggedVal = +sl.value;
-    const prods = [...builderSel].map(productByName).filter(Boolean);
+    const prods = [...builderSel].map(bProduct).filter(Boolean);
     const grams = getGrams(), locks = getLocks(), tp = S.settings().proteinPerMeal;
     const fixed = prods.map(p => {
       if (p.n === draggedName) return draggedVal;
@@ -557,10 +583,11 @@
     });
     const d = buildDish(prods, tp, fixed);
     const map = {}; prods.forEach((p, i) => map[p.n] = d.grams[i]);
-    document.querySelectorAll('#app .bslider').forEach(s => {
-      const g = map[s.dataset.name]; if (g == null) return;
-      if (s !== sl) s.value = g;                       // перетаскиваемый ползунок не трогаем
-      const lab = s.closest('.b-irow').querySelector('.g-now'); if (lab) lab.textContent = g;
+    document.querySelectorAll('#app .b-irow').forEach(row => {
+      const slider = row.querySelector('.bslider'), input = row.querySelector('.g-input');
+      const g = map[slider.dataset.name]; if (g == null) return;
+      if (slider !== sl) slider.value = g;             // элемент, который двигают, не трогаем
+      if (input !== sl) input.value = g;
     });
     setTxt('bmKcal', d.kcal); setTxt('bmFat', d.fat_g + ' г'); setTxt('bmProt', d.protein_g + ' г'); setTxt('bmCarb', d.carb_g + ' г');
     const bf = byId('rBarF'), bp = byId('rBarP'), bc = byId('rBarC');
@@ -736,6 +763,7 @@
           <div class="recipe__actions">
             <button class="btn ${fav ? 'btn--on' : ''}" data-fav="${r.id}">${fav ? '❤️ В избранном' : '🤍 В избранное'}</button>
             <button class="btn ${shop ? 'btn--on' : ''}" data-shop="${r.id}">🛒 ${shop ? 'В списке покупок' : 'В список покупок'}</button>
+            <button class="btn" data-tobuilder="${r.id}">🧪 В конструктор</button>
           </div>
         </div>
         <div class="recipe__steps">
@@ -969,13 +997,15 @@
     if (lockBtn) { e.preventDefault(); builderToggleLock(lockBtn.dataset.blockname); return; }
     if (e.target.id === 'bUnlockAll') { builderUnlockAll(); return; }
     if (e.target.id === 'bSaveDish') { builderSaveDish(); return; }
+    const toBuilder = e.target.closest('[data-tobuilder]');
+    if (toBuilder) { e.preventDefault(); openRecipeInBuilder(+toBuilder.dataset.tobuilder); return; }
     const openDish = e.target.closest('[data-opendish]');
     if (openDish) { openDishInBuilder(+openDish.dataset.opendish); return; }
     const delDish = e.target.closest('[data-deldish]');
     if (delDish) { removeSavedDish(+delDish.dataset.deldish); render(); return; }
     const bchip = e.target.closest('[data-bing]');
     if (bchip) { e.preventDefault(); const t = bchip.dataset.bing; builderSel.has(t) ? removeBuilder(t) : addBuilder(t); return; }
-    if (e.target.id === 'bClear') { builderSel.clear(); S.set('builderProducts', []); rerenderBuilder(); return; }
+    if (e.target.id === 'bClear') { builderSel.clear(); S.set('builderProducts', []); setGrams({}); setLocks([]); setExtra({}); rerenderBuilder(); return; }
     if (e.target.id === 'clearSel') { selected.clear(); S.set('searchIngredients', []); rerenderHome(); return; }
     if (e.target.id === 'clearShop') { S.clearShop(); render(); return; }
     if (e.target.id === 'openSettings2') { openSettings(); return; }
@@ -1031,6 +1061,7 @@
   app.addEventListener('change', e => {
     if (e.target.id === 'rebalanceToggle') { S.set('rebalanceOn', e.target.checked); render(); }
     if (e.target.classList.contains('bslider')) builderSetGrams(e.target.dataset.name, +e.target.value);
+    if (e.target.classList.contains('g-input')) builderSetGrams(e.target.dataset.name, +e.target.value);
   });
 
   /* ---------- настройки (вес/приёмы/белок) ---------- */

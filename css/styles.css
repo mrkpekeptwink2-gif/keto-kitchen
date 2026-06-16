@@ -257,3 +257,8 @@ h1{font-size:1.6rem;margin:.2em 0 .5em} h2{font-size:1.2rem;margin:1.2em 0 .5em}
 .dish-ings{list-style:none;padding:0;margin:10px 0 0;font-size:.88rem}
 .dish-ings li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line)}
 .dish-actions{display:flex;gap:8px;margin-top:12px}
+/* поле ручного ввода граммовки в конструкторе */
+.g-input{width:58px;text-align:right;font-weight:700;font-size:.95rem;border:1px solid var(--line);
+  border-radius:8px;padding:3px 6px;color:var(--ink);background:#fff;-moz-appearance:textfield}
+.g-input:focus{outline:none;border-color:var(--green);background:#fbfffc}
+.g-input::-webkit-outer-spin-button,.g-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
