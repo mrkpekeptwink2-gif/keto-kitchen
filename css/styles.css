@@ -262,3 +262,6 @@ h1{font-size:1.6rem;margin:.2em 0 .5em} h2{font-size:1.2rem;margin:1.2em 0 .5em}
   border-radius:8px;padding:3px 6px;color:var(--ink);background:#fff;-moz-appearance:textfield}
 .g-input:focus{outline:none;border-color:var(--green);background:#fbfffc}
 .g-input::-webkit-outer-spin-button,.g-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+/* на телефоне вертикальная прокрутка по ползунку = скролл страницы (а не сдвиг значения);
+   ползунок двигается только явным горизонтальным движением — чтобы не «скакал» при листании */
+input[type=range]{touch-action:pan-y}
