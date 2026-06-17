@@ -285,10 +285,11 @@
     if (ex[name]) return { n: name, f: ex[name].f, p: ex[name].p, c: ex[name].c };
     return productByName(name);
   }
-  // яйца удобнее считать поштучно: 1 куриное яйцо ≈ 50 г. ВНУТРИ всё в граммах — это лишь
-  // слой ввода/показа: пользователь вводит штуки, мы переводим в граммы (×50) и обратно.
-  const EGG_G = 50;
+  // яйца считаем поштучно: 1 куриное яйцо ≈ 55 г, и ТОЛЬКО целым числом штук. ВНУТРИ всё в граммах;
+  // яйца всегда кратны 55 г (snapEgg) и держатся фиксированными в оптимизаторе — дробных штук не бывает.
+  const EGG_G = 55;
   const isEgg = n => /яйц/i.test(n || '');
+  const snapEgg = g => Math.max(0, Math.round((+g || 0) / EGG_G)) * EGG_G;
   // категория продукта по доминирующему макросу (по калориям)
   function prodCat(p) {
     const kf = p.f * 9, kp = p.p * 4, kc = p.c * 4, tot = kf + kp + kc || 1;
@@ -309,6 +310,7 @@
     if (!prods.length) { setGrams({}); return; }
     const grams = getGrams(), locks = getLocks(), tp = S.settings().proteinPerMeal;
     const fixed = prods.map(p => {
+      if (isEgg(p.n)) return snapEgg(p.n in grams ? grams[p.n] : EGG_G * 2);  // яйца всегда целые, фиксированы
       const held = (locks.includes(p.n) || p.n === holdName) && (p.n in grams);
       return held ? grams[p.n] : null;
     });
@@ -424,10 +426,10 @@
         const g = grams[p.n] || 0;
         const locked = locks.includes(p.n);
         const egg = isEgg(p.n);
-        const smax = Math.max(300, Math.ceil(g * 2 / 50) * 50);
-        const step = egg ? 25 : (g <= 50 ? 1 : 5);   // яйца — шаг полъяйца; иначе 1/5 г
+        const smax = egg ? EGG_G * Math.max(10, Math.round(g / EGG_G) + 4) : Math.max(300, Math.ceil(g * 2 / 50) * 50);
+        const step = egg ? EGG_G : (g <= 50 ? 1 : 5);   // яйца — шаг в целое яйцо (55 г); иначе 1/5 г
         const unit = egg ? EGG_G : 1;
-        const disp = egg ? Math.round(g / EGG_G * 10) / 10 : g;
+        const disp = egg ? Math.round(g / EGG_G) : g;   // только целые штуки
         const unitLabel = egg
           ? `шт <small class="muted g-cap">${g} г</small>`
           : 'г';
@@ -436,7 +438,7 @@
           <div class="b-irow__head">
             <button class="block-lock" data-blockname="${esc(p.n)}" title="${locked ? 'Разморозить' : 'Заморозить граммовку'}">${locked ? '🔒' : '🔓'}</button>
             <span class="ing-name">${esc(p.n)}${tiny}</span>
-            <span class="ing-g"><input type="number" class="g-input" data-name="${esc(p.n)}" data-unit="${unit}" value="${disp}" min="0" step="${egg ? '0.5' : '1'}" inputmode="${egg ? 'decimal' : 'numeric'}"> ${unitLabel}</span>
+            <span class="ing-g"><input type="number" class="g-input" data-name="${esc(p.n)}" data-unit="${unit}" value="${disp}" min="0" step="1" inputmode="numeric"> ${unitLabel}</span>
           </div>
           <input type="range" class="bslider" data-name="${esc(p.n)}" min="0" max="${smax}" step="${step}" value="${g}">
         </li>`;
@@ -531,7 +533,7 @@
   // задать граммовку ползунком: держим это значение и пересчитываем ОСТАЛЬНЫЕ незамороженные.
   // сам ингредиент НЕ замораживаем (заморозка — только вручную кнопкой 🔒).
   function builderSetGrams(name, val) {
-    const grams = getGrams(); grams[name] = Math.max(0, Math.round(val)); setGrams(grams);
+    const grams = getGrams(); grams[name] = isEgg(name) ? snapEgg(val) : Math.max(0, Math.round(val)); setGrams(grams);
     builderRebalance(name);
     rerenderBuilder();
   }
@@ -562,7 +564,7 @@
     builderSel = new Set(d.items.map(i => i.n));
     S.set('builderProducts', [...builderSel]);
     const g = {}, ex = {};
-    d.items.forEach(i => { g[i.n] = i.grams; if (i.f != null) ex[i.n] = { f: i.f, p: i.p, c: i.c }; });
+    d.items.forEach(i => { g[i.n] = isEgg(i.n) ? snapEgg(i.grams) : i.grams; if (i.f != null) ex[i.n] = { f: i.f, p: i.p, c: i.c }; });
     setGrams(g); setExtra(ex); setLocks([]);
     location.hash = '#/builder';
   }
@@ -576,7 +578,7 @@
     builderSel = new Set(items.map(i => i.n));
     S.set('builderProducts', [...builderSel]);
     const g = {}, ex = {};
-    items.forEach(i => { g[i.n] = i.grams; ex[i.n] = { f: i.f, p: i.p, c: i.c }; });
+    items.forEach(i => { g[i.n] = isEgg(i.n) ? snapEgg(i.grams) : i.grams; ex[i.n] = { f: i.f, p: i.p, c: i.c }; });
     setGrams(g); setExtra(ex); setLocks([]);
     location.hash = '#/builder';
   }
@@ -587,7 +589,8 @@
     const prods = [...builderSel].map(bProduct).filter(Boolean);
     const grams = getGrams(), locks = getLocks(), tp = S.settings().proteinPerMeal;
     const fixed = prods.map(p => {
-      if (p.n === draggedName) return draggedVal;
+      if (p.n === draggedName) return isEgg(p.n) ? snapEgg(draggedVal) : draggedVal;
+      if (isEgg(p.n)) return snapEgg(p.n in grams ? grams[p.n] : EGG_G * 2);
       if (locks.includes(p.n) && (p.n in grams)) return grams[p.n];
       return null;
     });
@@ -597,7 +600,7 @@
       const slider = row.querySelector('.bslider'), input = row.querySelector('.g-input');
       const g = map[slider.dataset.name]; if (g == null) return;
       if (slider !== sl) slider.value = g;             // элемент, который двигают, не трогаем
-      if (input !== sl) { const u = +input.dataset.unit || 1; input.value = u === 1 ? g : Math.round(g / u * 10) / 10; }
+      if (input !== sl) { const u = +input.dataset.unit || 1; input.value = u === 1 ? g : Math.round(g / u); }
       const cap = row.querySelector('.g-cap'); if (cap) cap.textContent = g + ' г';
     });
     setTxt('bmKcal', d.kcal); setTxt('bmFat', d.fat_g + ' г'); setTxt('bmProt', d.protein_g + ' г'); setTxt('bmCarb', d.carb_g + ' г');
@@ -840,7 +843,7 @@
         <h3 class="card__title">${esc(d.name)}</h3>
         ${macroBar(m)}
         <div class="card__kcal">${m.kcal} ккал · Ж${m.fat_g} Б${m.protein_g} У${m.carb_g} г</div>
-        <ul class="dish-ings">${d.items.map(i => `<li><span>${esc(i.n)}</span><b>${isEgg(i.n) ? (Math.round(i.grams / EGG_G * 10) / 10) + ' шт' : i.grams + ' г'}</b></li>`).join('')}</ul>
+        <ul class="dish-ings">${d.items.map(i => `<li><span>${esc(i.n)}</span><b>${isEgg(i.n) ? (Math.round(i.grams / EGG_G)) + ' шт' : i.grams + ' г'}</b></li>`).join('')}</ul>
         <div class="dish-actions">
           <button class="btn btn--ghost btn--sm" data-opendish="${d.id}">↻ В конструктор</button>
           <button class="btn btn--ghost btn--sm" data-deldish="${d.id}">🗑 Удалить</button>
