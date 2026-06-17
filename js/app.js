@@ -285,6 +285,10 @@
     if (ex[name]) return { n: name, f: ex[name].f, p: ex[name].p, c: ex[name].c };
     return productByName(name);
   }
+  // яйца удобнее считать поштучно: 1 куриное яйцо ≈ 50 г. ВНУТРИ всё в граммах — это лишь
+  // слой ввода/показа: пользователь вводит штуки, мы переводим в граммы (×50) и обратно.
+  const EGG_G = 50;
+  const isEgg = n => /яйц/i.test(n || '');
   // категория продукта по доминирующему макросу (по калориям)
   function prodCat(p) {
     const kf = p.f * 9, kp = p.p * 4, kc = p.c * 4, tot = kf + kp + kc || 1;
@@ -419,14 +423,20 @@
       const rows = prods.map(p => {
         const g = grams[p.n] || 0;
         const locked = locks.includes(p.n);
+        const egg = isEgg(p.n);
         const smax = Math.max(300, Math.ceil(g * 2 / 50) * 50);
-        const step = g <= 50 ? 1 : 5;   // мелкий шаг (1 г) для малых граммовок, иначе 5 г
+        const step = egg ? 25 : (g <= 50 ? 1 : 5);   // яйца — шаг полъяйца; иначе 1/5 г
+        const unit = egg ? EGG_G : 1;
+        const disp = egg ? Math.round(g / EGG_G * 10) / 10 : g;
+        const unitLabel = egg
+          ? `шт <small class="muted g-cap">${g} г</small>`
+          : 'г';
         const tiny = (!locked && g < 3) ? ` <small class="muted">— можно убрать</small>` : '';
         return `<li class="b-irow${locked ? ' locked' : ''}">
           <div class="b-irow__head">
             <button class="block-lock" data-blockname="${esc(p.n)}" title="${locked ? 'Разморозить' : 'Заморозить граммовку'}">${locked ? '🔒' : '🔓'}</button>
             <span class="ing-name">${esc(p.n)}${tiny}</span>
-            <span class="ing-g"><input type="number" class="g-input" data-name="${esc(p.n)}" value="${g}" min="0" inputmode="numeric"> г</span>
+            <span class="ing-g"><input type="number" class="g-input" data-name="${esc(p.n)}" data-unit="${unit}" value="${disp}" min="0" step="${egg ? '0.5' : '1'}" inputmode="${egg ? 'decimal' : 'numeric'}"> ${unitLabel}</span>
           </div>
           <input type="range" class="bslider" data-name="${esc(p.n)}" min="0" max="${smax}" step="${step}" value="${g}">
         </li>`;
@@ -587,7 +597,8 @@
       const slider = row.querySelector('.bslider'), input = row.querySelector('.g-input');
       const g = map[slider.dataset.name]; if (g == null) return;
       if (slider !== sl) slider.value = g;             // элемент, который двигают, не трогаем
-      if (input !== sl) input.value = g;
+      if (input !== sl) { const u = +input.dataset.unit || 1; input.value = u === 1 ? g : Math.round(g / u * 10) / 10; }
+      const cap = row.querySelector('.g-cap'); if (cap) cap.textContent = g + ' г';
     });
     setTxt('bmKcal', d.kcal); setTxt('bmFat', d.fat_g + ' г'); setTxt('bmProt', d.protein_g + ' г'); setTxt('bmCarb', d.carb_g + ' г');
     const bf = byId('rBarF'), bp = byId('rBarP'), bc = byId('rBarC');
@@ -829,7 +840,7 @@
         <h3 class="card__title">${esc(d.name)}</h3>
         ${macroBar(m)}
         <div class="card__kcal">${m.kcal} ккал · Ж${m.fat_g} Б${m.protein_g} У${m.carb_g} г</div>
-        <ul class="dish-ings">${d.items.map(i => `<li><span>${esc(i.n)}</span><b>${i.grams} г</b></li>`).join('')}</ul>
+        <ul class="dish-ings">${d.items.map(i => `<li><span>${esc(i.n)}</span><b>${isEgg(i.n) ? (Math.round(i.grams / EGG_G * 10) / 10) + ' шт' : i.grams + ' г'}</b></li>`).join('')}</ul>
         <div class="dish-actions">
           <button class="btn btn--ghost btn--sm" data-opendish="${d.id}">↻ В конструктор</button>
           <button class="btn btn--ghost btn--sm" data-deldish="${d.id}">🗑 Удалить</button>
@@ -1061,7 +1072,7 @@
   app.addEventListener('change', e => {
     if (e.target.id === 'rebalanceToggle') { S.set('rebalanceOn', e.target.checked); render(); }
     if (e.target.classList.contains('bslider')) builderSetGrams(e.target.dataset.name, +e.target.value);
-    if (e.target.classList.contains('g-input')) builderSetGrams(e.target.dataset.name, +e.target.value);
+    if (e.target.classList.contains('g-input')) builderSetGrams(e.target.dataset.name, (+e.target.value) * (+e.target.dataset.unit || 1));
   });
 
   /* ---------- настройки (вес/приёмы/белок) ---------- */
